@@ -6,12 +6,15 @@ import { AddCommentDto, CreatePostDto } from "../post/dto/create-post.dto.js";
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     private pool: Pool;
-    
     constructor(private readonly configService: ConfigService) {
+        const database = this.configService.getOrThrow<string>('DB_NAME');
+        if (process.env.NODE_ENV === 'test' && database !== 'test') {
+            throw new Error('Unsafe database configuration for testing');
+        }
         this.pool = new Pool({
             host: this.configService.getOrThrow<string>('DB_HOST'),
             port: Number(this.configService.getOrThrow<string>('DB_PORT')),
-            database: this.configService.getOrThrow<string>('DB_NAME'),
+            database,
             user: this.configService.getOrThrow<string>('DB_USER'),
             password: this.configService.getOrThrow<string>('DB_PASSWORD')
         });
@@ -84,5 +87,33 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
             [postId, "You", dto.content]
         );
         return result.rows[0];
+    }
+
+    async findUserByAccountName(accountName: string) {
+        const result = await this.pool.query(
+            `SELECT id, account_name, password_hash, display_name, created_at
+            FROM users
+            WHERE account_name = $1`,
+            [accountName]
+        );
+        return result.rows[0] ?? null;
+    }async createUser(accountName: string, passwordHash: string, displayName: string) {
+        const result = await this.pool.query(
+            `INSERT INTO users(
+                account_name,
+                password_hash,
+                display_name
+            )
+            VALUES ($1, $2, $3)
+            RETURNING id, account_name, display_name`,
+            [accountName, passwordHash, displayName]
+        );
+        return result.rows[0];
+    }
+    async getDatabaseName(): Promise<string> {
+        const result = await this.pool.query(
+            "SELECT current_database()"
+        );
+        return result.rows[0].current_database;
     }
 }
